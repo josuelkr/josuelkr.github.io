@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Comparador com GPT</title>
+  <title>Comparador com GPT + PDF</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
@@ -101,6 +101,12 @@
       background: #022c2233;
     }
 
+    .status-warn {
+      color: #fbbf24;
+      border-color: #facc1533;
+      background: #451a0333;
+    }
+
     .form {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -140,14 +146,24 @@
 
     .actions {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
     }
 
     .hint {
       font-size: 11px;
       color: #9ca3af;
+    }
+
+    .hint a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+
+    .hint a:hover {
+      text-decoration: underline;
     }
 
     .result-box {
@@ -173,8 +189,10 @@
   <div class="app">
     <div class="header">
       <div>
-        <div class="title">Comparador com GPT</div>
-        <div class="subtitle">Use o ChatGPT como motor de comparação entre dois itens.</div>
+        <div class="title">Comparador com GPT + Dados de PDF</div>
+        <div class="subtitle">
+          O GPT é usado em segundo plano, sempre considerando o PDF de referência.
+        </div>
       </div>
       <div class="key-box">
         <input
@@ -188,14 +206,23 @@
       </div>
     </div>
 
+    <div class="actions">
+      <span id="pdfStatus" class="status-pill status-warn">
+        carregando PDF de dados...
+      </span>
+      <span class="hint">
+        Modelo: <code>gpt-4.1-mini</code>. A chave e o PDF ficam apenas no navegador.
+      </span>
+    </div>
+
     <div class="form">
       <div class="field">
         <label for="itemA">Item A</label>
-        <textarea id="itemA" placeholder="Ex.: Webcam Logitech C920, 1080p, foco automático..."></textarea>
+        <textarea id="itemA" placeholder="Descrição do Item A (ex.: Webcam Logitech C920, 1080p...)"></textarea>
       </div>
       <div class="field">
         <label for="itemB">Item B</label>
-        <textarea id="itemB" placeholder="Ex.: Webcam Brio 100, 1080p, correção automática de luz..."></textarea>
+        <textarea id="itemB" placeholder="Descrição do Item B (ex.: Webcam Brio 100, 1080p...)"></textarea>
       </div>
       <div class="field full-width">
         <label for="criteria">Critérios (opcional)</label>
@@ -204,137 +231,39 @@
     </div>
 
     <div class="actions">
-      <span class="hint">Modelo: <code>gpt-4.1-mini</code>. A chave fica guardada apenas no seu navegador.</span>
+      <span class="hint">
+        O modelo verá uma combinação: seus textos + dados extraídos do PDF (catálogo / especificações).
+      </span>
       <button id="compareBtn" class="btn">Comparar</button>
     </div>
 
     <div class="field full-width">
       <label>Resultado</label>
       <div id="result" class="result-box">
-        Preencha os itens e clique em “Comparar”.
+        Preencha os itens, aguarde o carregamento do PDF e clique em “Comparar”.
       </div>
     </div>
   </div>
 
   <script type="module">
+    /*
+      IMPORTAÇÕES:
+      - OpenAI SDK via esm.sh
+      - pdfjs-dist via JSDelivr para ler o PDF estático "dados.pdf"
+    */
     import OpenAI from "https://esm.sh/openai@4.20.0";
+    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.mjs";
 
-    const apiKeyInput = document.getElementById("apiKey");
-    const saveKeyBtn = document.getElementById("saveKeyBtn");
-    const statusEl = document.getElementById("status");
-    const itemAEl = document.getElementById("itemA");
-    const itemBEl = document.getElementById("itemB");
-    const criteriaEl = document.getElementById("criteria");
-    const compareBtn = document.getElementById("compareBtn");
-    const resultEl = document.getElementById("result");
+    // ===== CONFIGURAÇÕES CUSTOMIZÁVEIS =====
 
-    let client = null;
-    let hasKey = false;
+    // Caminho do PDF com dados (coloque "dados.pdf" na mesma pasta do index.html)
+    const PDF_URL = "dados.pdf";
 
-    // Tenta carregar chave do localStorage (uso pessoal)
-    const storedKey = localStorage.getItem("OPENAI_API_KEY_BROWSER");
-    if (storedKey) {
-      apiKeyInput.value = storedKey;
-      initClient(storedKey);
-    }
+    // Instruções internas (NÃO aparecem na tela, só vão para o modelo)
+    const HIDDEN_INSTRUCTIONS = `
+Você é um assistente especializado em comparar itens utilizando obrigatoriamente
+as informações fornecidas a partir de um PDF de referência (por exemplo, catálogo técnico,
+tabela de especificações ou ficha de produtos).
 
-    saveKeyBtn.addEventListener("click", () => {
-      const key = apiKeyInput.value.trim();
-      if (!key) {
-        alert("Cole sua OPENAI_API_KEY antes.");
-        return;
-      }
-      localStorage.setItem("OPENAI_API_KEY_BROWSER", key);
-      initClient(key);
-    });
-
-    function initClient(key) {
-      try {
-        client = new OpenAI({
-          apiKey: key,
-          dangerouslyAllowBrowser: true
-        });
-        hasKey = true;
-        statusEl.textContent = "chave carregada";
-        statusEl.classList.add("status-ok");
-        resultEl.textContent = "Chave configurada. Agora preencha os itens e clique em “Comparar”.";
-      } catch (e) {
-        console.error(e);
-        hasKey = false;
-        statusEl.textContent = "erro na chave";
-        alert("Erro ao inicializar o cliente. Verifique se a chave está correta.");
-      }
-    }
-
-    async function comparar() {
-      if (!hasKey || !client) {
-        alert("Configure a chave da OpenAI antes de comparar.");
-        return;
-      }
-
-      const itemA = itemAEl.value.trim();
-      const itemB = itemBEl.value.trim();
-      const criterios = criteriaEl.value.trim();
-
-      if (!itemA || !itemB) {
-        alert("Preencha pelo menos o Item A e o Item B.");
-        return;
-      }
-
-      const criteriosTexto = criterios || "qualidade geral, pontos fortes e fracos, custo-benefício e indicação de uso.";
-
-      const promptUsuario = `
-Quero que você atue como um motor de comparação.
-
-Item A:
-${itemA}
-
-Item B:
-${itemB}
-
-Critérios de comparação:
-${criteriosTexto}
-
-Tarefas:
-1. Produza uma tabela em Markdown comparando os dois itens pelos critérios.
-2. Em seguida, faça um resumo em até 3 parágrafos destacando:
-   - em que situações o Item A é melhor;
-   - em que situações o Item B é melhor;
-   - uma recomendação final, se for possível.
-Responda em português.`;
-
-      compareBtn.disabled = true;
-      compareBtn.textContent = "Comparando...";
-      resultEl.textContent = "Gerando comparação...";
-
-      try {
-        const completion = await client.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Você é um assistente especializado em comparar objetos, produtos e ideias de forma clara e estruturada."
-            },
-            {
-              role: "user",
-              content: promptUsuario
-            }
-          ]
-        });
-
-        const texto = completion.choices[0]?.message?.content ?? "(resposta vazia)";
-        resultEl.textContent = texto;
-      } catch (err) {
-        console.error(err);
-        resultEl.textContent = "Ocorreu um erro ao chamar a API. Veja o console do navegador para mais detalhes.";
-      } finally {
-        compareBtn.disabled = false;
-        compareBtn.textContent = "Comparar";
-      }
-    }
-
-    compareBtn.addEventListener("click", comparar);
-  </script>
-</body>
-</html>
-
+Regras IMPORTANTES:
+1. SEMPRE considere o bloco "DADOS DO PDF" que será fornecido na mensagem do usuári
