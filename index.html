@@ -266,4 +266,196 @@ as informações fornecidas a partir de um PDF de referência (por exemplo, cat�
 tabela de especificações ou ficha de produtos).
 
 Regras IMPORTANTES:
-1. SEMPRE considere o bloco "DADOS DO PDF" que será fornecido na mensagem do usuári
+1. SEMPRE considere o bloco "DADOS DO PDF" que será fornecido na mensagem do usuário.
+2. Quando houver conflito entre a descrição textual do usuário e os dados do PDF,
+   dê prioridade aos dados do PDF e, se fizer sentido, explique o conflito.
+3. Use os dados do PDF para:
+   - preencher especificações objetivas (resoluções, dimensões, medidas, capacidades, etc.);
+   - fundamentar comparações técnicas e de desempenho;
+   - evitar “inventar” números ou características não presentes no PDF.
+4. A saída deve ser em português do Brasil.
+5. A resposta deve, sempre que possível, incluir:
+   (a) uma tabela em Markdown comparando os itens pelos critérios relevantes;
+   (b) um resumo textual com recomendação.
+6. Se os dados do PDF forem insuficientes para algum critério, deixe isso claro explicitamente
+   (por exemplo: "o PDF não traz informação sobre X").
+`;
+
+    // ===== ELEMENTOS DE INTERFACE =====
+
+    const apiKeyInput = document.getElementById("apiKey");
+    const saveKeyBtn = document.getElementById("saveKeyBtn");
+    const statusEl = document.getElementById("status");
+    const pdfStatusEl = document.getElementById("pdfStatus");
+    const itemAEl = document.getElementById("itemA");
+    const itemBEl = document.getElementById("itemB");
+    const criteriaEl = document.getElementById("criteria");
+    const compareBtn = document.getElementById("compareBtn");
+    const resultEl = document.getElementById("result");
+
+    // ===== ESTADO =====
+
+    let client = null;
+    let hasKey = false;
+    let pdfText = "";   // texto bruto extraído do PDF
+    let pdfLoaded = false;
+
+    // ===== CARREGAR CHAVE SALVA (LOCALSTORAGE) =====
+
+    const storedKey = localStorage.getItem("OPENAI_API_KEY_BROWSER");
+    if (storedKey) {
+      apiKeyInput.value = storedKey;
+      initClient(storedKey);
+    }
+
+    saveKeyBtn.addEventListener("click", () => {
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        alert("Cole sua OPENAI_API_KEY antes.");
+        return;
+      }
+      localStorage.setItem("OPENAI_API_KEY_BROWSER", key);
+      initClient(key);
+    });
+
+    function initClient(key) {
+      try {
+        client = new OpenAI({
+          apiKey: key,
+          dangerouslyAllowBrowser: true
+        });
+        hasKey = true;
+        statusEl.textContent = "chave carregada";
+        statusEl.classList.add("status-ok");
+      } catch (e) {
+        console.error(e);
+        hasKey = false;
+        statusEl.textContent = "erro na chave";
+        alert("Erro ao inicializar o cliente. Verifique se a chave está correta.");
+      }
+    }
+
+    // ===== CARREGAR E LER O PDF =====
+
+    async function loadPdfText() {
+      try {
+        pdfStatusEl.textContent = "carregando PDF de dados...";
+        pdfStatusEl.classList.add("status-warn");
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs";
+
+        const loadingTask = pdfjsLib.getDocument(PDF_URL);
+        const pdf = await loadingTask.promise;
+
+        let fullText = "";
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const content = await page.getTextContent();
+          const strings = content.items.map((item) => item.str);
+          fullText += strings.join(" ") + "\n";
+        }
+
+        // Opcional: limitar tamanho para evitar prompts gigantes
+        const MAX_CHARS = 8000;
+        pdfText = fullText.slice(0, MAX_CHARS);
+
+        pdfLoaded = true;
+        pdfStatusEl.textContent = "PDF de dados carregado";
+        pdfStatusEl.classList.remove("status-warn");
+        pdfStatusEl.classList.add("status-ok");
+
+        if (!pdfText.trim()) {
+          pdfStatusEl.textContent = "PDF carregado, mas não foi possível extrair texto.";
+        }
+      } catch (err) {
+        console.error("Erro ao carregar/ler o PDF:", err);
+        pdfLoaded = false;
+        pdfStatusEl.textContent = "erro ao carregar PDF (ver console)";
+      }
+    }
+
+    // dispara o carregamento assim que a página abrir
+    loadPdfText();
+
+    // ===== FUNÇÃO PRINCIPAL DE COMPARAÇÃO =====
+
+    async function comparar() {
+      if (!hasKey || !client) {
+        alert("Configure a chave da OpenAI antes de comparar.");
+        return;
+      }
+
+      if (!pdfLoaded || !pdfText.trim()) {
+        alert("O PDF de dados ainda não foi carregado ou está vazio. Aguarde ou verifique o arquivo dados.pdf.");
+        return;
+      }
+
+      const itemA = itemAEl.value.trim();
+      const itemB = itemBEl.value.trim();
+      const criterios = criteriaEl.value.trim();
+
+      if (!itemA || !itemB) {
+        alert("Preencha pelo menos o Item A e o Item B.");
+        return;
+      }
+
+      const criteriosTexto =
+        criterios || "qualidade geral, pontos fortes e fracos, custo-benefício e indicação de uso.";
+
+      // Mensagem de usuário (INCLUINDO PDF)
+      const userPrompt = `
+Quero comparar dois itens usando TAMBÉM os dados que vêm de um PDF de referência.
+
+Item A (descrição do usuário):
+${itemA}
+
+Item B (descrição do usuário):
+${itemB}
+
+Critérios de comparação:
+${criteriosTexto}
+
+A seguir estão trechos de texto extraídos do PDF de dados (catálogo, tabelas, especificações, etc.).
+Use essas informações de forma prioritária para complementar ou corrigir as descrições dos itens.
+
+DADOS DO PDF (texto bruto, pode conter mais informações do que o necessário):
+${pdfText}
+`;
+
+      compareBtn.disabled = true;
+      compareBtn.textContent = "Comparando...";
+      resultEl.textContent = "Gerando comparação com base nas descrições e no PDF...";
+
+      try {
+        const completion = await client.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: [
+            {
+              role: "system",
+              content: HIDDEN_INSTRUCTIONS
+            },
+            {
+              role: "user",
+              content: userPrompt
+            }
+          ]
+        });
+
+        const texto = completion.choices[0]?.message?.content ?? "(resposta vazia)";
+        resultEl.textContent = texto;
+      } catch (err) {
+        console.error(err);
+        resultEl.textContent =
+          "Ocorreu um erro ao chamar a API. Veja o console do navegador para mais detalhes.";
+      } finally {
+        compareBtn.disabled = false;
+        compareBtn.textContent = "Comparar";
+      }
+    }
+
+    compareBtn.addEventListener("click", comparar);
+  </script>
+</body>
+</html>
