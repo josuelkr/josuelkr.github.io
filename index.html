@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Comparador com GPT + PDF</title>
+  <title>Comparador GPT + PDF</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
@@ -107,44 +107,7 @@
       background: #451a0333;
     }
 
-    .form {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      font-size: 13px;
-    }
-
-    label {
-      color: #d1d5db;
-    }
-
-    textarea, input {
-      background: #020617;
-      border-radius: 10px;
-      border: 1px solid #374151;
-      padding: 8px 10px;
-      font-size: 13px;
-      color: #e5e7eb;
-      resize: vertical;
-      min-height: 70px;
-    }
-
-    textarea:focus, input:focus {
-      outline: none;
-      border-color: #6366f1;
-    }
-
-    .full-width {
-      grid-column: 1 / -1;
-    }
-
-    .actions {
+    .row {
       display: flex;
       justify-content: space-between;
       gap: 8px;
@@ -166,22 +129,51 @@
       text-decoration: underline;
     }
 
+    .dialog-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    label {
+      color: #d1d5db;
+    }
+
+    textarea {
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #e5e7eb;
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
     .result-box {
       border-radius: 12px;
       border: 1px solid #1f2937;
       background: #020617;
       padding: 12px;
-      max-height: 300px;
+      max-height: 320px;
       overflow-y: auto;
       font-size: 13px;
       line-height: 1.5;
       white-space: pre-wrap;
-    }
-
-    @media (max-width: 700px) {
-      .form {
-        grid-template-columns: 1fr;
-      }
     }
   </style>
 </head>
@@ -189,9 +181,9 @@
   <div class="app">
     <div class="header">
       <div>
-        <div class="title">Comparador com GPT + Dados de PDF</div>
+        <div class="title">Comparador GPT + PDF</div>
         <div class="subtitle">
-          O GPT é usado em segundo plano, sempre considerando o PDF de referência.
+          O GPT trabalha em segundo plano usando sempre os dados do PDF.
         </div>
       </div>
       <div class="key-box">
@@ -206,41 +198,39 @@
       </div>
     </div>
 
-    <div class="actions">
+    <div class="row">
       <span id="pdfStatus" class="status-pill status-warn">
         carregando PDF de dados...
       </span>
       <span class="hint">
-        Modelo: <code>gpt-4.1-mini</code>. A chave e o PDF ficam apenas no navegador.
+        Modelo: <code>gpt-4.1-mini</code>. A chave e o PDF são usados apenas no seu navegador.
       </span>
     </div>
 
-    <div class="form">
-      <div class="field">
-        <label for="itemA">Item A</label>
-        <textarea id="itemA" placeholder="Descrição do Item A (ex.: Webcam Logitech C920, 1080p...)"></textarea>
-      </div>
-      <div class="field">
-        <label for="itemB">Item B</label>
-        <textarea id="itemB" placeholder="Descrição do Item B (ex.: Webcam Brio 100, 1080p...)"></textarea>
-      </div>
-      <div class="field full-width">
-        <label for="criteria">Critérios (opcional)</label>
-        <textarea id="criteria" placeholder="Ex.: qualidade de imagem, microfone, uso para aulas online, custo-benefício"></textarea>
-      </div>
+    <div class="dialog-field">
+      <label for="dialogo">
+        Janela de diálogo
+      </label>
+      <textarea
+        id="dialogo"
+        placeholder="Exemplos:
+- Compare a Webcam Logitech C920 com a Brio 100 para aulas online.
+- Com base no PDF, qual webcam é melhor para uso em sala de aula?
+- Faça um resumo comparativo dos modelos X e Y."
+      ></textarea>
     </div>
 
     <div class="actions">
       <span class="hint">
-        O modelo verá uma combinação: seus textos + dados extraídos do PDF (catálogo / especificações).
+        O modelo verá sua mensagem + um resumo do PDF e responderá em formato comparativo.
       </span>
-      <button id="compareBtn" class="btn">Comparar</button>
+      <button id="sendBtn" class="btn">Enviar</button>
     </div>
 
-    <div class="field full-width">
-      <label>Resultado</label>
+    <div class="dialog-field">
+      <label>Resposta</label>
       <div id="result" class="result-box">
-        Preencha os itens, aguarde o carregamento do PDF e clique em “Comparar”.
+        Aguarde o carregamento do PDF, digite sua pergunta acima e clique em “Enviar”.
       </div>
     </div>
   </div>
@@ -259,7 +249,7 @@
     // Caminho do PDF com dados (coloque "dados.pdf" na mesma pasta do index.html)
     const PDF_URL = "dados.pdf";
 
-    // Instruções internas (NÃO aparecem na tela, só vão para o modelo)
+    // Instruções internas (NÃO aparecem na tela, só vão para o modelo como system message)
     const HIDDEN_INSTRUCTIONS = `
 Você é um assistente especializado em comparar itens utilizando obrigatoriamente
 as informações fornecidas a partir de um PDF de referência (por exemplo, catálogo técnico,
@@ -267,18 +257,18 @@ tabela de especificações ou ficha de produtos).
 
 Regras IMPORTANTES:
 1. SEMPRE considere o bloco "DADOS DO PDF" que será fornecido na mensagem do usuário.
-2. Quando houver conflito entre a descrição textual do usuário e os dados do PDF,
-   dê prioridade aos dados do PDF e, se fizer sentido, explique o conflito.
+2. Quando houver conflito entre a descrição do usuário e os dados do PDF,
+   dê prioridade aos dados do PDF e, se necessário, explique o conflito.
 3. Use os dados do PDF para:
-   - preencher especificações objetivas (resoluções, dimensões, medidas, capacidades, etc.);
+   - preencher especificações objetivas (resoluções, dimensões, capacidades, etc.);
    - fundamentar comparações técnicas e de desempenho;
-   - evitar “inventar” números ou características não presentes no PDF.
+   - evitar inventar números ou características não presentes no PDF.
 4. A saída deve ser em português do Brasil.
-5. A resposta deve, sempre que possível, incluir:
-   (a) uma tabela em Markdown comparando os itens pelos critérios relevantes;
+5. Sempre que for pertinente, inclua:
+   (a) uma tabela em Markdown comparando os itens/alternativas;
    (b) um resumo textual com recomendação.
-6. Se os dados do PDF forem insuficientes para algum critério, deixe isso claro explicitamente
-   (por exemplo: "o PDF não traz informação sobre X").
+6. Se os dados do PDF forem insuficientes para algum critério,
+   deixe isso claro explicitamente na resposta.
 `;
 
     // ===== ELEMENTOS DE INTERFACE =====
@@ -287,17 +277,15 @@ Regras IMPORTANTES:
     const saveKeyBtn = document.getElementById("saveKeyBtn");
     const statusEl = document.getElementById("status");
     const pdfStatusEl = document.getElementById("pdfStatus");
-    const itemAEl = document.getElementById("itemA");
-    const itemBEl = document.getElementById("itemB");
-    const criteriaEl = document.getElementById("criteria");
-    const compareBtn = document.getElementById("compareBtn");
+    const dialogEl = document.getElementById("dialogo");
+    const sendBtn = document.getElementById("sendBtn");
     const resultEl = document.getElementById("result");
 
     // ===== ESTADO =====
 
     let client = null;
     let hasKey = false;
-    let pdfText = "";   // texto bruto extraído do PDF
+    let pdfText = "";
     let pdfLoaded = false;
 
     // ===== CARREGAR CHAVE SALVA (LOCALSTORAGE) =====
@@ -342,6 +330,7 @@ Regras IMPORTANTES:
         pdfStatusEl.textContent = "carregando PDF de dados...";
         pdfStatusEl.classList.add("status-warn");
 
+        // worker para o pdf.js
         pdfjsLib.GlobalWorkerOptions.workerSrc =
           "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.mjs";
 
@@ -357,7 +346,7 @@ Regras IMPORTANTES:
           fullText += strings.join(" ") + "\n";
         }
 
-        // Opcional: limitar tamanho para evitar prompts gigantes
+        // Limita tamanho enviado ao modelo
         const MAX_CHARS = 8000;
         pdfText = fullText.slice(0, MAX_CHARS);
 
@@ -379,11 +368,11 @@ Regras IMPORTANTES:
     // dispara o carregamento assim que a página abrir
     loadPdfText();
 
-    // ===== FUNÇÃO PRINCIPAL DE COMPARAÇÃO =====
+    // ===== FUNÇÃO PRINCIPAL (UMA ÚNICA JANELA DE DIÁLOGO) =====
 
-    async function comparar() {
+    async function enviarDialogo() {
       if (!hasKey || !client) {
-        alert("Configure a chave da OpenAI antes de comparar.");
+        alert("Configure a chave da OpenAI antes de enviar.");
         return;
       }
 
@@ -392,41 +381,30 @@ Regras IMPORTANTES:
         return;
       }
 
-      const itemA = itemAEl.value.trim();
-      const itemB = itemBEl.value.trim();
-      const criterios = criteriaEl.value.trim();
-
-      if (!itemA || !itemB) {
-        alert("Preencha pelo menos o Item A e o Item B.");
+      const textoUsuario = dialogEl.value.trim();
+      if (!textoUsuario) {
+        alert("Digite uma mensagem na janela de diálogo.");
         return;
       }
 
-      const criteriosTexto =
-        criterios || "qualidade geral, pontos fortes e fracos, custo-benefício e indicação de uso.";
-
-      // Mensagem de usuário (INCLUINDO PDF)
+      // Construímos a mensagem de usuário juntando:
+      // - texto do usuário
+      // - bloco com dados do PDF
       const userPrompt = `
-Quero comparar dois itens usando TAMBÉM os dados que vêm de um PDF de referência.
+Mensagem do usuário:
+${textoUsuario}
 
-Item A (descrição do usuário):
-${itemA}
+A seguir estão trechos de texto extraídos de um PDF de referência
+(catálogo, tabelas, especificações etc.). Você DEVE usar esses dados
+como base principal para qualquer comparação ou análise.
 
-Item B (descrição do usuário):
-${itemB}
-
-Critérios de comparação:
-${criteriosTexto}
-
-A seguir estão trechos de texto extraídos do PDF de dados (catálogo, tabelas, especificações, etc.).
-Use essas informações de forma prioritária para complementar ou corrigir as descrições dos itens.
-
-DADOS DO PDF (texto bruto, pode conter mais informações do que o necessário):
+DADOS DO PDF:
 ${pdfText}
 `;
 
-      compareBtn.disabled = true;
-      compareBtn.textContent = "Comparando...";
-      resultEl.textContent = "Gerando comparação com base nas descrições e no PDF...";
+      sendBtn.disabled = true;
+      sendBtn.textContent = "Gerando resposta...";
+      resultEl.textContent = "Gerando resposta usando sua mensagem e o PDF de dados...";
 
       try {
         const completion = await client.chat.completions.create({
@@ -450,12 +428,20 @@ ${pdfText}
         resultEl.textContent =
           "Ocorreu um erro ao chamar a API. Veja o console do navegador para mais detalhes.";
       } finally {
-        compareBtn.disabled = false;
-        compareBtn.textContent = "Comparar";
+        sendBtn.disabled = false;
+        sendBtn.textContent = "Enviar";
       }
     }
 
-    compareBtn.addEventListener("click", comparar);
+    sendBtn.addEventListener("click", enviarDialogo);
+
+    // Enviar com Ctrl+Enter
+    dialogEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        enviarDialogo();
+      }
+    });
   </script>
 </body>
 </html>
